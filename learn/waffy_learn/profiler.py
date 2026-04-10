@@ -1,0 +1,208 @@
+"""
+Per-location profile builder.
+
+Aggregates parsed traffic data and builds parameter profiles for each
+location + method combination.
+"""
+
+import yaml
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .analyzer import TypeInferrer, ParamProfile, ParamType, is_freetext_field
+from .config import LearnConfig
+
+
+@dataclass
+class RequestSample:
+    """A single parsed request for learning."""
+
+    location: str
+    method: str
+    params: dict[str, str]           # name -> value
+    param_sources: dict[str, str]    # name -> "query"|"body"|"header"|"cookie"
+    content_type: str = ""
+
+
+@dataclass
+class LocationProfile:
+    """Aggregated profile for one location + method."""
+
+    location: str
+    method: str
+    content_types: set[str] = field(default_factory=set)
+    total_requests: int = 0
+
+    # Param name -> list of observed values
+    param_values: dict[str, list[str]] = field(default_factory=dict)
+    # Param name -> source
+    param_sources: dict[str, str] = field(default_factory=dict)
+    # Param name -> count of requests where it appeared
+    param_presence: dict[str, int] = field(default_factory=dict)
+
+    # Computed profiles (filled after analyze())
+    param_profiles: dict[str, ParamProfile] = field(default_factory=dict)
+
+
+class ProfileBuilder:
+    """Builds per-location profiles from traffic samples."""
+
+    def __init__(self, config: LearnConfig | None = None):
+        self.config = config or LearnConfig()
+        self.inferrer = TypeInferrer(
+            confidence=self.config.type_confidence,
+            enum_max_cardinality=self.config.enum_max_cardinality,
+            outlier_percentile=self.config.outlier_percentile,
+        )
+        self.locations: dict[str, LocationProfile] = {}  # "POST /path" -> profile
+
+    def _location_key(self, method: str, location: str) -> str:
+        return f"{method.upper()} {location}"
+
+    def _should_learn(self, location: str) -> bool:
+        """Check include/exclude filters."""
+        for excl in self.config.exclude_locations:
+            if location.startswith(excl):
+                return False
+        if self.config.include_locations:
+            return any(location.startswith(inc)
+                       for inc in self.config.include_locations)
+        return True
+
+    def add_sample(self, sample: RequestSample) -> None:
+        """Add a single request sample to the learning data."""
+        if not self._should_learn(sample.location):
+            return
+
+        key = self._location_key(sample.method, sample.location)
+
+        if key not in self.locations:
+            self.locations[key] = LocationProfile(
+                location=sample.location,
+                method=sample.method,
+            )
+
+        loc = self.locations[key]
+        loc.total_requests += 1
+
+        if sample.content_type:
+            loc.content_types.add(sample.content_type)
+
+        for param_name, param_value in sample.params.items():
+            if param_name not in loc.param_values:
+                loc.param_values[param_name] = []
+                loc.param_presence[param_name] = 0
+
+            loc.param_values[param_name].append(param_value)
+            loc.param_presence[param_name] += 1
+            loc.param_sources[param_name] = sample.param_sources.get(
+                param_name, "body"
+            )
+
+    def analyze(self) -> dict[str, LocationProfile]:
+        """
+        Run type inference on all collected data.
+        Returns dict of location_key -> analyzed LocationProfile.
+        """
+        for key, loc in self.locations.items():
+            if loc.total_requests < self.config.min_samples:
+                continue  # Not enough data yet
+
+            for param_name, values in loc.param_values.items():
+                profile = self.inferrer.infer(
+                    values=values,
+                    total_requests=loc.total_requests,
+                    present_count=loc.param_presence[param_name],
+                )
+                profile.name = param_name
+                profile.source = loc.param_sources[param_name]
+                loc.param_profiles[param_name] = profile
+
+        return self.locations
+
+    def export_yaml(self, output_dir: Path) -> list[Path]:
+        """
+        Export analyzed profiles as YAML rule files.
+        One file per location+method.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        written: list[Path] = []
+
+        for key, loc in self.locations.items():
+            if not loc.param_profiles:
+                continue
+
+            rule = self._build_rule_dict(loc)
+
+            # Sanitize filename: "POST /api/v1/users" -> "POST_api_v1_users.yaml"
+            safe_name = key.replace(" ", "_").replace("/", "_").strip("_")
+            filepath = output_dir / f"{safe_name}.yaml"
+
+            with open(filepath, "w") as f:
+                f.write(f"# Auto-generated by waffy-learn\n")
+                f.write(f"# Location: {loc.method} {loc.location}\n")
+                f.write(f"# Training samples: {loc.total_requests}\n\n")
+                yaml.dump(rule, f, default_flow_style=False, sort_keys=False)
+
+            written.append(filepath)
+
+        return written
+
+    def _build_rule_dict(self, loc: LocationProfile) -> dict:
+        """Convert a LocationProfile into the YAML rule format."""
+        params = []
+        has_freetext = False
+
+        for name, profile in loc.param_profiles.items():
+            param_dict: dict = {
+                "name": name,
+                "source": profile.source,
+                "required": profile.required,
+                "type": profile.inferred_type.value,
+            }
+
+            constraints: dict = {}
+
+            if profile.constraints.min_length > 0:
+                constraints["min_length"] = profile.constraints.min_length
+            if profile.constraints.max_length > 0:
+                constraints["max_length"] = profile.constraints.max_length
+
+            if profile.inferred_type in (ParamType.INTEGER, ParamType.FLOAT):
+                if profile.constraints.min_value is not None:
+                    constraints["min"] = profile.constraints.min_value
+                if profile.constraints.max_value is not None:
+                    constraints["max"] = profile.constraints.max_value
+
+            if profile.inferred_type == ParamType.ENUM:
+                constraints["values"] = profile.constraints.enum_values
+
+            if profile.constraints.regex:
+                constraints["regex"] = profile.constraints.regex
+
+            if constraints:
+                param_dict["constraints"] = constraints
+
+            if is_freetext_field(profile):
+                has_freetext = True
+                param_dict["freetext"] = True
+
+            params.append(param_dict)
+
+        rule: dict = {
+            "location": loc.location,
+            "method": loc.method,
+            "strict_mode": True,
+            "parameters": params,
+        }
+
+        if loc.content_types:
+            rule["content_types"] = sorted(loc.content_types)
+
+        if has_freetext:
+            rule["_note"] = (
+                "Some parameters are marked as freetext. "
+                "Consider adding blacklist overlay patterns for these."
+            )
+
+        return rule

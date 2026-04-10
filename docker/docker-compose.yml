@@ -1,0 +1,34 @@
+services:
+  # Test upstream app (simple echo server)
+  upstream:
+    image: hashicorp/http-echo
+    command: ["-text", '{"status": "ok"}']
+    ports:
+      - "5678:5678"
+
+  # nginx with waffy module
+  nginx:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - waffy-rules:/var/waffy
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - upstream
+
+  # Learning engine
+  learn:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.learn
+    volumes:
+      - waffy-rules:/var/waffy/profiles
+      - nginx-logs:/var/log/nginx
+    command: ["from-log", "/var/log/nginx/waffy_learn.log", "--output", "/var/waffy/profiles"]
+
+volumes:
+  waffy-rules:
+  nginx-logs:

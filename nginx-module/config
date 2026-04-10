@@ -1,0 +1,37 @@
+ngx_addon_name=ngx_http_waffy_module
+
+if test -n "$ngx_module_link"; then
+    ngx_module_type=HTTP
+    ngx_module_name=ngx_http_waffy_module
+    ngx_module_srcs="
+        $ngx_addon_dir/ngx_http_waffy_module.c
+        $ngx_addon_dir/waffy_rule_engine.c
+        $ngx_addon_dir/waffy_parser.c
+        $ngx_addon_dir/waffy_shm.c
+    "
+    ngx_module_deps="
+        $ngx_addon_dir/waffy_rule_engine.h
+        $ngx_addon_dir/waffy_parser.h
+        $ngx_addon_dir/waffy_shm.h
+        $ngx_addon_dir/waffy_types.h
+    "
+    ngx_module_libs="-lpcre2-8"
+
+    . auto/module
+else
+    HTTP_MODULES="$HTTP_MODULES ngx_http_waffy_module"
+    NGX_ADDON_SRCS="
+        $NGX_ADDON_SRCS
+        $ngx_addon_dir/ngx_http_waffy_module.c
+        $ngx_addon_dir/waffy_rule_engine.c
+        $ngx_addon_dir/waffy_parser.c
+        $ngx_addon_dir/waffy_shm.c
+    "
+    NGX_ADDON_DEPS="
+        $NGX_ADDON_DEPS
+        $ngx_addon_dir/waffy_rule_engine.h
+        $ngx_addon_dir/waffy_parser.h
+        $ngx_addon_dir/waffy_shm.h
+        $ngx_addon_dir/waffy_types.h
+    "
+fi

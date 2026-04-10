@@ -1,0 +1,55 @@
+# Example waffy rule profile for search endpoint
+# Location: GET /api/v1/search
+# Training samples: 125,840 requests
+
+location: "/api/v1/search"
+method: GET
+strict_mode: true
+
+parameters:
+  - name: "q"
+    source: query
+    required: true
+    type: string
+    freetext: true
+    constraints:
+      min_length: 1
+      max_length: 200
+      regex: "^[a-zA-Z0-9\\s\\-_.,'\"!?@#]+$"
+
+  - name: "page"
+    source: query
+    required: false
+    type: integer
+    constraints:
+      min: 1
+      max: 10000
+
+  - name: "per_page"
+    source: query
+    required: false
+    type: enum
+    constraints:
+      values: ["10", "25", "50", "100"]
+
+  - name: "sort"
+    source: query
+    required: false
+    type: enum
+    constraints:
+      values: ["relevance", "date", "name", "price"]
+
+  - name: "order"
+    source: query
+    required: false
+    type: enum
+    constraints:
+      values: ["asc", "desc"]
+
+  - name: "category"
+    source: query
+    required: false
+    type: string
+    constraints:
+      max_length: 50
+      regex: "^[a-z0-9\\-]+$"
