@@ -1,0 +1,9 @@
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+COPY compiler/ ./
+RUN go mod tidy && go build -o /waffy-compile ./cmd/waffy-compile
+
+FROM alpine:3.21
+COPY --from=builder /waffy-compile /usr/local/bin/waffy-compile
+ENTRYPOINT ["waffy-compile"]

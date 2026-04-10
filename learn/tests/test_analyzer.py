@@ -70,15 +70,20 @@ class TestConstraints:
         assert profile.constraints.max_value <= 200
 
     def test_length_bounds(self, inferrer):
-        values = ["a" * i for i in range(5, 55)]
-        profile = inferrer.infer(values, total_requests=200, present_count=50)
+        # >50 unique values to avoid enum classification
+        values = ["a" * i for i in range(5, 60)]
+        profile = inferrer.infer(values, total_requests=200, present_count=55)
         assert profile.constraints.min_length >= 5
-        assert profile.constraints.max_length <= 54
+        assert profile.constraints.max_length <= 59
 
 
 class TestFreetext:
     def test_freetext_detection(self, inferrer):
-        values = [f"Hello world! This is a <b>test</b> #{i}" for i in range(200)]
+        # Values must be > 50 chars for freetext detection (max_length > 50)
+        values = [
+            f"Hello world! This is a <b>test</b> message number #{i} with extra padding here"
+            for i in range(200)
+        ]
         profile = inferrer.infer(values, total_requests=200, present_count=200)
         profile.name = "comment"
         profile.source = "body"

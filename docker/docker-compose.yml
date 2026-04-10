@@ -1,12 +1,35 @@
 services:
-  # Test upstream app (simple echo server)
+  # ───── Test services ─────
+  # Run: docker compose -f docker/docker-compose.yml --profile test up --build --abort-on-container-exit
+
+  test-go:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test-go
+    profiles: ["test"]
+
+  test-python:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test-python
+    profiles: ["test"]
+
+  test-e2e:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.e2e
+    profiles: ["test"]
+
+  # ───── Runtime services ─────
+  # Run: docker compose -f docker/docker-compose.yml --profile run up --build
+
   upstream:
     image: hashicorp/http-echo
     command: ["-text", '{"status": "ok"}']
     ports:
       - "5678:5678"
+    profiles: ["run"]
 
-  # nginx with waffy module
   nginx:
     build:
       context: ..
@@ -18,8 +41,8 @@ services:
       - nginx-logs:/var/log/nginx
     depends_on:
       - upstream
+    profiles: ["run"]
 
-  # Learning engine
   learn:
     build:
       context: ..
@@ -28,6 +51,7 @@ services:
       - waffy-rules:/var/waffy/profiles
       - nginx-logs:/var/log/nginx
     command: ["from-log", "/var/log/nginx/waffy_learn.log", "--output", "/var/waffy/profiles"]
+    profiles: ["run"]
 
 volumes:
   waffy-rules:

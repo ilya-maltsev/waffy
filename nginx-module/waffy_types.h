@@ -152,8 +152,8 @@ typedef struct {
 
 typedef struct {
     ngx_flag_t          enable;       /* waffy on|off */
-    waffy_mode_e         mode;         /* enforce|detect|learn|off */
-    waffy_body_parser_e  body_parser;  /* json|form|multipart|auto */
+    ngx_uint_t          mode;         /* waffy_mode_e: enforce|detect|learn|off */
+    ngx_uint_t          body_parser;  /* waffy_body_parser_e: json|form|multipart|auto */
     size_t              max_body_size; /* Maximum request body to inspect */
     ngx_uint_t          violation_status; /* HTTP status on block (default 403) */
     ngx_flag_t          log_violations;

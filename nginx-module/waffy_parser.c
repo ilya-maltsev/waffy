@@ -626,7 +626,7 @@ waffy_parse_multipart_body(ngx_http_request_t *r, ngx_chain_t *body,
         }
 
         /* Find field name: name="fieldname" */
-        u_char *name_start = ngx_strnstr((char *)disp, "name=\"",
+        u_char *name_start = ngx_strnstr(disp, "name=\"",
                                          end - disp);
         if (name_start == NULL) {
             continue;
@@ -643,7 +643,7 @@ waffy_parse_multipart_body(ngx_http_request_t *r, ngx_chain_t *body,
         field_name.len = name_end - name_start;
 
         /* Check if it's a file field (has filename=) */
-        u_char *filename = ngx_strnstr((char *)disp, "filename=\"",
+        u_char *filename = ngx_strnstr(disp, "filename=\"",
                                        end - disp);
         if (filename != NULL && filename < name_end + 100) {
             /* File field — add filename as the value for rule checking */
@@ -660,7 +660,7 @@ waffy_parse_multipart_body(ngx_http_request_t *r, ngx_chain_t *body,
         }
 
         /* Regular field — find value after double CRLF */
-        u_char *val_start = ngx_strnstr((char *)name_end, "\r\n\r\n",
+        u_char *val_start = ngx_strnstr(name_end, "\r\n\r\n",
                                         end - name_end);
         if (val_start == NULL) {
             continue;
@@ -668,7 +668,7 @@ waffy_parse_multipart_body(ngx_http_request_t *r, ngx_chain_t *body,
         val_start += 4;
 
         /* Value ends at next boundary */
-        u_char *val_end = ngx_strnstr((char *)val_start, (char *)boundary,
+        u_char *val_end = ngx_strnstr(val_start, (char *) boundary,
                                       end - val_start);
         if (val_end == NULL) {
             val_end = end;
@@ -742,21 +742,19 @@ ngx_int_t
 waffy_parse_cookies(ngx_http_request_t *r, waffy_parsed_request_t *parsed,
                    ngx_pool_t *pool)
 {
-    ngx_table_elt_t **cookies;
-    ngx_uint_t        n_cookies, i;
+    ngx_table_elt_t  *cookie;
     u_char           *p, *end, *name_start, *val_start;
     ngx_str_t         name, value;
 
-    n_cookies = r->headers_in.cookies.nelts;
-    if (n_cookies == 0) {
+    /* nginx 1.23+: cookie headers form a linked list via ->next */
+    cookie = r->headers_in.cookie;
+    if (cookie == NULL) {
         return NGX_OK;
     }
 
-    cookies = r->headers_in.cookies.elts;
-
-    for (i = 0; i < n_cookies; i++) {
-        p = cookies[i]->value.data;
-        end = p + cookies[i]->value.len;
+    while (cookie) {
+        p = cookie->value.data;
+        end = p + cookie->value.len;
 
         while (p < end) {
             /* Skip whitespace */
@@ -794,6 +792,8 @@ waffy_parse_cookies(ngx_http_request_t *r, waffy_parsed_request_t *parsed,
                                WAFFY_SRC_COOKIE, pool);
             }
         }
+
+        cookie = cookie->next;
     }
 
     return NGX_OK;

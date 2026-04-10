@@ -1,0 +1,9 @@
+FROM golang:1.22-alpine
+
+WORKDIR /app
+
+COPY compiler/ ./
+
+RUN go mod tidy
+
+CMD ["go", "test", "-v", "./..."]
